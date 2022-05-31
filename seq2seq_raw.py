@@ -203,7 +203,8 @@ def readLangs(lang1, lang2, reverse=False):
 # earlier).
 #
 
-MAX_LENGTH = 10
+MAX_LENGTH = 15
+MIN_LENGTH = 2
 
 eng_prefixes = (
     "i am ", "i m ",
@@ -217,8 +218,9 @@ eng_prefixes = (
 
 def filterPair(p):
     return len(p[0].split(' ')) < MAX_LENGTH and \
-        len(p[1].split(' ')) < MAX_LENGTH and \
-        p[1].startswith(eng_prefixes)
+        len(p[1].split(' ')) < MAX_LENGTH \
+            and len(p[0].split(' ')) > MIN_LENGTH \
+        # and p[1].startswith(eng_prefixes)
 
 
 def filterPairs(pairs):
@@ -760,9 +762,9 @@ evaluateRandomly(encoder1, attn_decoder1)
 # output steps:
 #
 
-output_words, attentions = evaluate(
-    encoder1, attn_decoder1, "je suis trop froid .")
-plt.matshow(attentions.numpy())
+# output_words, attentions = evaluate(
+#     encoder1, attn_decoder1, "je suis trop froid .")
+# plt.matshow(attentions.numpy())
 
 
 ######################################################################
@@ -770,62 +772,41 @@ plt.matshow(attentions.numpy())
 # and labels:
 #
 
-def showAttention(input_sentence, output_words, attentions):
-    # Set up figure with colorbar
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    cax = ax.matshow(attentions.numpy(), cmap='bone')
-    fig.colorbar(cax)
+# def showAttention(input_sentence, output_words, attentions):
+#     # Set up figure with colorbar
+#     fig = plt.figure()
+#     ax = fig.add_subplot(111)
+#     cax = ax.matshow(attentions.numpy(), cmap='bone')
+#     fig.colorbar(cax)
 
-    # Set up axes
-    ax.set_xticklabels([''] + input_sentence.split(' ') +
-                       ['<EOS>'], rotation=90)
-    ax.set_yticklabels([''] + output_words)
+#     # Set up axes
+#     ax.set_xticklabels([''] + input_sentence.split(' ') +
+#                        ['<EOS>'], rotation=90)
+#     ax.set_yticklabels([''] + output_words)
 
-    # Show label at every tick
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+#     # Show label at every tick
+#     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+#     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
 
-    plt.show()
-
-
-def evaluateAndShowAttention(input_sentence):
-    output_words, attentions = evaluate(
-        encoder1, attn_decoder1, input_sentence)
-    print('input =', input_sentence)
-    print('output =', ' '.join(output_words))
-    showAttention(input_sentence, output_words, attentions)
+#     plt.show()
 
 
-evaluateAndShowAttention("elle a cinq ans de moins que moi .")
+# def evaluateAndShowAttention(input_sentence):
+#     output_words, attentions = evaluate(
+#         encoder1, attn_decoder1, input_sentence)
+#     print('input =', input_sentence)
+#     print('output =', ' '.join(output_words))
+#     showAttention(input_sentence, output_words, attentions)
 
-evaluateAndShowAttention("elle est trop petit .")
 
-evaluateAndShowAttention("je ne crains pas de mourir .")
+# evaluateAndShowAttention("elle a cinq ans de moins que moi .")
 
-evaluateAndShowAttention("c est un jeune directeur plein de talent .")
+# evaluateAndShowAttention("elle est trop petit .")
+
+# evaluateAndShowAttention("je ne crains pas de mourir .")
+
+# evaluateAndShowAttention("c est un jeune directeur plein de talent .")
 
 
-######################################################################
-# Exercises
-# =========
-#
-# -  Try with a different dataset
-#
-#    -  Another language pair
-#    -  Human → Machine (e.g. IOT commands)
-#    -  Chat → Response
-#    -  Question → Answer
-#
-# -  Replace the embeddings with pre-trained word embeddings such as word2vec or
-#    GloVe
 # -  Try with more layers, more hidden units, and more sentences. Compare
 #    the training time and results.
-# -  If you use a translation file where pairs have two of the same phrase
-#    (``I am test \t I am test``), you can use this as an autoencoder. Try
-#    this:
-#
-#    -  Train as an autoencoder
-#    -  Save only the Encoder network
-#    -  Train a new Decoder for translation from there
-#
