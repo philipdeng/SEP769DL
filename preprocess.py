@@ -1,6 +1,7 @@
 # Fei
 
 import pandas as pd
+from tqdm import tqdm
 
 # Load file
 f = open('en-fr.csv', 'rb')
@@ -8,18 +9,20 @@ f = open('en-fr.csv', 'rb')
 # Write file
 new_f = open('eng-fra.csv', 'wb')
 
-# EDA
-for i in range(5000):
+# Select
+i = 0
+while i < 50000:
     line = f.readline()
-    new_f.write(line)
-    print(line)
+    if line.decode("utf-8").count(",") == 1:
+        new_f.write(line)
+        i += 1
 
 new_f.close()
 f.close()
 
-df = pd.read_csv('en-fr.csv',nrows=2000, encoding='utf-8')
-print(df.head(10))
-output = df.values.tolist()
-print(output)
+# df = pd.read_csv('en-fr.csv',nrows=2000, encoding='utf-8')
+# print(df.head(10))
+# output = df.values.tolist()
+# print(output)
 
 pass

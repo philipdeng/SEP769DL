@@ -90,6 +90,8 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 
+from tqdm import tqdm
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 ######################################################################
@@ -157,7 +159,6 @@ def unicodeToAscii(s):
 
 # Lowercase, trim, and remove non-letter characters
 
-
 def normalizeString(s):
     s = unicodeToAscii(s.lower().strip())
     s = re.sub(r"([.!?])", r" \1", s)           # Split .!? with words
@@ -180,7 +181,7 @@ def readLangs(lang1, lang2, reverse=False):
         read().strip().split('\n')
 
     # Split every line into pairs and normalize
-    pairs = [[normalizeString(s) for s in l.split(',')] for l in lines]
+    pairs = [[normalizeString(s) for s in l.split(',')] for l in tqdm(lines)]
 
     # Reverse pairs, make Lang instances
     if reverse:
@@ -204,23 +205,15 @@ def readLangs(lang1, lang2, reverse=False):
 #
 
 MAX_LENGTH = 15
-MIN_LENGTH = 2
+MIN_LENGTH = 5
 
-eng_prefixes = (
-    "i am ", "i m ",
-    "he is", "he s ",
-    "she is", "she s ",
-    "you are", "you re ",
-    "we are", "we re ",
-    "they are", "they re "
-)
 
 
 def filterPair(p):
     return len(p[0].split(' ')) < MAX_LENGTH and \
         len(p[1].split(' ')) < MAX_LENGTH \
             and len(p[0].split(' ')) > MIN_LENGTH \
-        # and p[1].startswith(eng_prefixes)
+                and len(p[1].split(' ')) > MIN_LENGTH 
 
 
 def filterPairs(pairs):
@@ -736,7 +729,7 @@ def evaluateRandomly(encoder, decoder, n=10):
 #    encoder and decoder are initialized and run ``trainIters`` again.
 #
 
-hidden_size = 256
+hidden_size = 512
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
 
