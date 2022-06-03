@@ -169,11 +169,9 @@ def normalizeString(s):
 ######################################################################
 # To read the data file we will split the file into lines, and then split
 # lines into pairs. The files are all English → Other Language, so if we
-# want to translate from Other Language → English I added the ``reverse``
-# flag to reverse the pairs.
-#
+# want to translate from Other Language → English 
 
-def readLangs(lang1, lang2, reverse=False):
+def readLangs(lang1, lang2):
     print("Reading lines...")
 
     # Read the file and split into lines
@@ -183,14 +181,8 @@ def readLangs(lang1, lang2, reverse=False):
     # Split every line into pairs and normalize
     pairs = [[normalizeString(s) for s in l.split(',')] for l in tqdm(lines)]
 
-    # Reverse pairs, make Lang instances
-    if reverse:
-        pairs = [list(reversed(p)) for p in pairs]
-        input_lang = Lang(lang2)
-        output_lang = Lang(lang1)
-    else:
-        input_lang = Lang(lang1)
-        output_lang = Lang(lang2)
+    input_lang = Lang(lang1)
+    output_lang = Lang(lang2)
 
     return input_lang, output_lang, pairs
 
@@ -228,8 +220,8 @@ def filterPairs(pairs):
 # -  Make word lists from sentences in pairs
 #
 
-def prepareData(lang1, lang2, reverse=False):
-    input_lang, output_lang, pairs = readLangs(lang1, lang2, reverse)
+def prepareData(lang1, lang2):
+    input_lang, output_lang, pairs = readLangs(lang1, lang2)
     print("Read %s sentence pairs" % len(pairs))
     pairs = filterPairs(pairs)
     print("Trimmed to %s sentence pairs" % len(pairs))
@@ -243,7 +235,7 @@ def prepareData(lang1, lang2, reverse=False):
     return input_lang, output_lang, pairs
 
 
-input_lang, output_lang, pairs = prepareData('eng', 'fra', True)
+input_lang, output_lang, pairs = prepareData('eng', 'fra')
 print(random.choice(pairs))
 
 
@@ -362,80 +354,6 @@ class DecoderRNN(nn.Module):
     def initHidden(self):
         return torch.zeros(1, 1, self.hidden_size, device=device)
 
-######################################################################
-# I encourage you to train and observe the results of this model, but to
-# save space we'll be going straight for the gold and introducing the
-# Attention Mechanism.
-#
-
-
-######################################################################
-# Attention Decoder
-# ^^^^^^^^^^^^^^^^^
-#
-# If only the context vector is passed between the encoder and decoder,
-# that single vector carries the burden of encoding the entire sentence.
-#
-# Attention allows the decoder network to "focus" on a different part of
-# the encoder's outputs for every step of the decoder's own outputs. First
-# we calculate a set of *attention weights*. These will be multiplied by
-# the encoder output vectors to create a weighted combination. The result
-# (called ``attn_applied`` in the code) should contain information about
-# that specific part of the input sequence, and thus help the decoder
-# choose the right output words.
-#
-# .. figure:: https://i.imgur.com/1152PYf.png
-#    :alt:
-#
-# Calculating the attention weights is done with another feed-forward
-# layer ``attn``, using the decoder's input and hidden state as inputs.
-# Because there are sentences of all sizes in the training data, to
-# actually create and train this layer we have to choose a maximum
-# sentence length (input length, for encoder outputs) that it can apply
-# to. Sentences of the maximum length will use all the attention weights,
-# while shorter sentences will only use the first few.
-#
-# .. figure:: /_static/img/seq-seq-images/attention-decoder-network.png
-#    :alt:
-#
-#
-
-class AttnDecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, dropout_p=0.1, max_length=MAX_LENGTH):
-        super(AttnDecoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-        self.output_size = output_size
-        self.dropout_p = dropout_p
-        self.max_length = max_length
-
-        self.embedding = nn.Embedding(self.output_size, self.hidden_size)
-        self.attn = nn.Linear(self.hidden_size * 2, self.max_length)
-        self.attn_combine = nn.Linear(self.hidden_size * 2, self.hidden_size)
-        self.dropout = nn.Dropout(self.dropout_p)
-        self.gru = nn.GRU(self.hidden_size, self.hidden_size)
-        self.out = nn.Linear(self.hidden_size, self.output_size)
-
-    def forward(self, input, hidden, encoder_outputs):
-        embedded = self.embedding(input).view(1, 1, -1)
-        embedded = self.dropout(embedded)
-
-        attn_weights = F.softmax(
-            self.attn(torch.cat((embedded[0], hidden[0]), 1)), dim=1)
-        attn_applied = torch.bmm(attn_weights.unsqueeze(0),
-                                 encoder_outputs.unsqueeze(0))
-
-        output = torch.cat((embedded[0], attn_applied[0]), 1)
-        output = self.attn_combine(output).unsqueeze(0)
-
-        output = F.relu(output)
-        output, hidden = self.gru(output, hidden)
-
-        output = F.log_softmax(self.out(output[0]), dim=1)
-        return output, hidden, attn_weights
-
-    def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
-
 
 ######################################################################
 # .. note:: There are other forms of attention that work around the length
@@ -528,16 +446,16 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     if use_teacher_forcing:
         # Teacher forcing: Feed the target as the next input
         for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = decoder(
+                decoder_input, decoder_hidden)
             loss += criterion(decoder_output, target_tensor[di])
             decoder_input = target_tensor[di]  # Teacher forcing
 
     else:
         # Without teacher forcing: use its own predictions as the next input
         for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
+            decoder_output, decoder_hidden = decoder(
+                decoder_input, decoder_hidden)
             topv, topi = decoder_output.topk(1)
             decoder_input = topi.squeeze().detach()  # detach from history as input
 
@@ -676,12 +594,10 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
         decoder_hidden = encoder_hidden
 
         decoded_words = []
-        decoder_attentions = torch.zeros(max_length, max_length)
 
         for di in range(max_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            decoder_attentions[di] = decoder_attention.data
+            decoder_output, decoder_hidden,  = decoder(
+                decoder_input, decoder_hidden)
             topv, topi = decoder_output.data.topk(1)
             if topi.item() == EOS_token:
                 decoded_words.append('<EOS>')
@@ -691,7 +607,7 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
 
             decoder_input = topi.squeeze().detach()
 
-        return decoded_words, decoder_attentions[:di + 1]
+        return decoded_words
 
 
 ######################################################################
@@ -704,7 +620,7 @@ def evaluateRandomly(encoder, decoder, n=10):
         pair = random.choice(pairs)
         print('>', pair[0])
         print('=', pair[1])
-        output_words, attentions = evaluate(encoder, decoder, pair[0])
+        output_words = evaluate(encoder, decoder, pair[0])
         output_sentence = ' '.join(output_words)
         print('<', output_sentence)
         print('')
@@ -731,75 +647,14 @@ def evaluateRandomly(encoder, decoder, n=10):
 
 hidden_size = 512
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
-attn_decoder1 = AttnDecoderRNN(hidden_size, output_lang.n_words, dropout_p=0.1).to(device)
+decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, attn_decoder1, 75000, print_every=5000)
-
-######################################################################
-#
-
-evaluateRandomly(encoder1, attn_decoder1)
-
+trainIters(encoder1, decoder1, 75000, print_every=5000)
 
 ######################################################################
-# Visualizing Attention
-# ---------------------
-#
-# A useful property of the attention mechanism is its highly interpretable
-# outputs. Because it is used to weight specific encoder outputs of the
-# input sequence, we can imagine looking where the network is focused most
-# at each time step.
-#
-# You could simply run ``plt.matshow(attentions)`` to see attention output
-# displayed as a matrix, with the columns being input steps and rows being
-# output steps:
 #
 
-# output_words, attentions = evaluate(
-#     encoder1, attn_decoder1, "je suis trop froid .")
-# plt.matshow(attentions.numpy())
+evaluateRandomly(encoder1, decoder1)
 
 
-######################################################################
-# For a better viewing experience we will do the extra work of adding axes
-# and labels:
-#
 
-# def showAttention(input_sentence, output_words, attentions):
-#     # Set up figure with colorbar
-#     fig = plt.figure()
-#     ax = fig.add_subplot(111)
-#     cax = ax.matshow(attentions.numpy(), cmap='bone')
-#     fig.colorbar(cax)
-
-#     # Set up axes
-#     ax.set_xticklabels([''] + input_sentence.split(' ') +
-#                        ['<EOS>'], rotation=90)
-#     ax.set_yticklabels([''] + output_words)
-
-#     # Show label at every tick
-#     ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
-#     ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
-
-#     plt.show()
-
-
-# def evaluateAndShowAttention(input_sentence):
-#     output_words, attentions = evaluate(
-#         encoder1, attn_decoder1, input_sentence)
-#     print('input =', input_sentence)
-#     print('output =', ' '.join(output_words))
-#     showAttention(input_sentence, output_words, attentions)
-
-
-# evaluateAndShowAttention("elle a cinq ans de moins que moi .")
-
-# evaluateAndShowAttention("elle est trop petit .")
-
-# evaluateAndShowAttention("je ne crains pas de mourir .")
-
-# evaluateAndShowAttention("c est un jeune directeur plein de talent .")
-
-
-# -  Try with more layers, more hidden units, and more sentences. Compare
-#    the training time and results.
