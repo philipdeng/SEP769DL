@@ -181,8 +181,9 @@ def readLangs(lang1, lang2):
     # Split every line into pairs and normalize
     pairs = [[normalizeString(s) for s in l.split(',')] for l in tqdm(lines)]
 
-    input_lang = Lang(lang1)
-    output_lang = Lang(lang2)
+    pairs = [list(reversed(p)) for p in pairs]
+    input_lang = Lang(lang2)
+    output_lang = Lang(lang1)
 
     return input_lang, output_lang, pairs
 
