@@ -1,84 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-NLP From Scratch: Translation with a Sequence to Sequence Network and Attention
-*******************************************************************************
-**Author**: `Sean Robertson <https://github.com/spro/practical-pytorch>`_
 
-This is the third and final tutorial on doing "NLP From Scratch", where we
-write our own classes and functions to preprocess the data to do our NLP
-modeling tasks. We hope after you complete this tutorial that you'll proceed to
-learn how `torchtext` can handle much of this preprocessing for you in the
-three tutorials immediately following this one.
-
-In this project we will be teaching a neural network to translate from
-French to English.
-
-::
-
-    [KEY: > input, = target, < output]
-
-    > il est en train de peindre un tableau .
-    = he is painting a picture .
-    < he is painting a picture .
-
-    > pourquoi ne pas essayer ce vin delicieux ?
-    = why not try that delicious wine ?
-    < why not try that delicious wine ?
-
-    > elle n est pas poete mais romanciere .
-    = she is not a poet but a novelist .
-    < she not not a poet but a novelist .
-
-    > vous etes trop maigre .
-    = you re too skinny .
-    < you re all alone .
-
-... to varying degrees of success.
-
-This is made possible by the simple but powerful idea of the `sequence
-to sequence network <https://arxiv.org/abs/1409.3215>`__, in which two
-recurrent neural networks work together to transform one sequence to
-another. An encoder network condenses an input sequence into a vector,
-and a decoder network unfolds that vector into a new sequence.
-
-.. figure:: /_static/img/seq-seq-images/seq2seq.png
-   :alt:
-
-To improve upon this model we'll use an `attention
-mechanism <https://arxiv.org/abs/1409.0473>`__, which lets the decoder
-learn to focus over a specific range of the input sequence.
-
-**Recommended Reading:**
-
-I assume you have at least installed PyTorch, know Python, and
-understand Tensors:
-
--  https://pytorch.org/ For installation instructions
--  :doc:`/beginner/deep_learning_60min_blitz` to get started with PyTorch in general
--  :doc:`/beginner/pytorch_with_examples` for a wide and deep overview
--  :doc:`/beginner/former_torchies_tutorial` if you are former Lua Torch user
-
-
-It would also be useful to know about Sequence to Sequence networks and
-how they work:
-
--  `Learning Phrase Representations using RNN Encoder-Decoder for
-   Statistical Machine Translation <https://arxiv.org/abs/1406.1078>`__
--  `Sequence to Sequence Learning with Neural
-   Networks <https://arxiv.org/abs/1409.3215>`__
--  `Neural Machine Translation by Jointly Learning to Align and
-   Translate <https://arxiv.org/abs/1409.0473>`__
--  `A Neural Conversational Model <https://arxiv.org/abs/1506.05869>`__
-
-You will also find the previous tutorials on
-:doc:`/intermediate/char_rnn_classification_tutorial`
-and :doc:`/intermediate/char_rnn_generation_tutorial`
-helpful as those concepts are very similar to the Encoder and Decoder
-models, respectively.
-
-**Requirements**
-"""
+# Requirements
 from __future__ import unicode_literals, print_function, division
+from cgi import test
 from io import open
 import unicodedata
 import string
@@ -238,6 +162,22 @@ def prepareData(lang1, lang2):
 
 input_lang, output_lang, pairs = prepareData('eng', 'fra')
 print(random.choice(pairs))
+
+
+######################################################################
+# Split into 70 training 15 val 15 test
+
+def splitData(pairs):
+    train_set_size = int(len(pairs) * 0.7)
+    split_set_size = len(pairs) - train_set_size
+    train_set, split_set = torch.utils.data.random_split(pairs, [train_set_size, split_set_size])
+    test_set_size = int(len(split_set) * 0.5)
+    val_set_size = len(split_set) - test_set_size
+    val_set, test_set = torch.utils.data.random_split(split_set, [val_set_size, test_set_size])
+    return train_set, val_set, test_set
+
+
+train_set, val_set, test_set = splitData(pairs)
 
 
 ######################################################################
@@ -417,8 +357,6 @@ def tensorsFromPair(pair):
 # ``teacher_forcing_ratio`` up to use more of it.
 #
 
-teacher_forcing_ratio = 0.5
-
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
     encoder_hidden = encoder.initHidden()
@@ -442,27 +380,15 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 
     decoder_hidden = encoder_hidden
 
-    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
+    for di in range(target_length):
+        decoder_output, decoder_hidden = decoder(
+            decoder_input, decoder_hidden)
+        topv, topi = decoder_output.topk(1)
+        decoder_input = topi.squeeze().detach()  # detach from history as input
 
-    if use_teacher_forcing:
-        # Teacher forcing: Feed the target as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
-            loss += criterion(decoder_output, target_tensor[di])
-            decoder_input = target_tensor[di]  # Teacher forcing
-
-    else:
-        # Without teacher forcing: use its own predictions as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden = decoder(
-                decoder_input, decoder_hidden)
-            topv, topi = decoder_output.topk(1)
-            decoder_input = topi.squeeze().detach()  # detach from history as input
-
-            loss += criterion(decoder_output, target_tensor[di])
-            if decoder_input.item() == EOS_token:
-                break
+        loss += criterion(decoder_output, target_tensor[di])
+        if decoder_input.item() == EOS_token:
+            break
 
     loss.backward()
 
@@ -507,19 +433,24 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def trainIters(encoder, decoder, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
+def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.001):
+    print("Max iterations: ", max_n_iters)
+
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0  # Reset every plot_every
 
-    encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
-    decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_pairs = [tensorsFromPair(random.choice(pairs))
-                      for i in range(n_iters)]
+    encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
+    decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
+    training_pairs = [tensorsFromPair(random.choice(train_set))
+                      for i in range(max_n_iters)]
     criterion = nn.NLLLoss()
 
-    for iter in range(1, n_iters + 1):
+    last_loss = 10
+    countdown = 3
+
+    for iter in range(1, max_n_iters + 1):
         training_pair = training_pairs[iter - 1]
         input_tensor = training_pair[0]
         target_tensor = training_pair[1]
@@ -532,13 +463,22 @@ def trainIters(encoder, decoder, n_iters, print_every=1000, plot_every=100, lear
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
-            print('%s (%d %d%%) %.4f' % (timeSince(start, iter / n_iters),
-                                         iter, iter / n_iters * 100, print_loss_avg))
+            print('%s (%d %d%%) %.4f' % (timeSince(start, iter / max_n_iters),
+                                         iter, iter / max_n_iters * 100, print_loss_avg))
+            if last_loss - print_loss_avg < 0.01:
+                if countdown == 0:
+                    break
+                else:
+                    countdown -= 1
+            else:
+                countdown = 3
+            last_loss = print_loss_avg
 
         if iter % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
+        
 
     showPlot(plot_losses)
 
@@ -650,7 +590,7 @@ hidden_size = 512
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, decoder1, 75000, print_every=5000)
+trainIters(encoder1, decoder1, 200000, print_every=5000)
 
 ######################################################################
 #
