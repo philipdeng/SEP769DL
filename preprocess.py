@@ -11,7 +11,7 @@ new_f = open('eng-fra.csv', 'wb')
 
 # Select
 i = 0
-while i < 5000:
+while i < 1000000:
     line = f.readline()
     if line.decode("utf-8").count(",") == 1:
         new_f.write(line)

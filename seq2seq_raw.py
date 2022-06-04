@@ -433,7 +433,7 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.001):
+def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.0001):
     print("Max iterations: ", max_n_iters)
 
     start = time.time()
@@ -471,7 +471,7 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
                 else:
                     countdown -= 1
             else:
-                countdown = 3
+                countdown = 5
             last_loss = print_loss_avg
 
         if iter % plot_every == 0:
