@@ -236,7 +236,7 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size,2)
 
     def forward(self, input, hidden):
         embedded = self.embedding(input).view(1, 1, -1)
@@ -245,7 +245,7 @@ class EncoderRNN(nn.Module):
         return output, hidden
 
     def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
+        return torch.zeros(2, 1, self.hidden_size, device=device)
 
 ######################################################################
 # The Decoder
@@ -281,7 +281,7 @@ class DecoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size)
+        self.gru = nn.GRU(hidden_size, hidden_size, 2)
         self.out = nn.Linear(hidden_size, output_size)
         self.softmax = nn.LogSoftmax(dim=1)
 
@@ -293,7 +293,7 @@ class DecoderRNN(nn.Module):
         return output, hidden
 
     def initHidden(self):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
+        return torch.zeros(2, 1, self.hidden_size, device=device)
 
 
 ######################################################################
@@ -465,14 +465,14 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
             print_loss_total = 0
             print('%s (%d %d%%) %.4f' % (timeSince(start, iter / max_n_iters),
                                          iter, iter / max_n_iters * 100, print_loss_avg))
-            if last_loss - print_loss_avg < 0.01:
-                if countdown == 0:
-                    break
-                else:
-                    countdown -= 1
-            else:
-                countdown = 5
-            last_loss = print_loss_avg
+            # if last_loss - print_loss_avg < 0.01:
+            #     if countdown == 0:
+            #         break
+            #     else:
+            #         countdown -= 1
+            # else:
+            #     countdown = 5
+            # last_loss = print_loss_avg
 
         if iter % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
@@ -551,6 +551,40 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
         return decoded_words
 
 
+def evaluate_loss(encoder, decoder, input_tensor, target_tensor, max_length=MAX_LENGTH):
+    with torch.no_grad():
+        input_length = input_tensor.size(0)
+        target_length = target_tensor.size(0)
+        encoder_hidden = encoder.initHidden()
+
+        encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+
+        loss = 0
+
+        for ei in range(input_length):
+            encoder_output, encoder_hidden = encoder(input_tensor[ei],
+                                                     encoder_hidden)
+            encoder_outputs[ei] += encoder_output[0, 0]
+
+        decoder_input = torch.tensor([[SOS_token]], device=device)  # SOS
+
+        decoder_hidden = encoder_hidden
+
+        for di in range(max_length):
+            decoder_output, decoder_hidden,  = decoder(
+                decoder_input, decoder_hidden)
+            topv, topi = decoder_output.data.topk(1)
+            decoder_input = topi.squeeze().detach()
+            
+            loss += criterion(decoder_output, target_tensor[di])
+            if decoder_input.item() == EOS_token:
+                break
+
+        loss.backward()
+
+        return loss.item() / target_length
+
+
 ######################################################################
 # We can evaluate random sentences from the training set and print out the
 # input, target, and output to make some subjective quality judgements:
@@ -590,7 +624,7 @@ hidden_size = 512
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, decoder1, 200000, print_every=5000)
+trainIters(encoder1, decoder1, 10000000, print_every=5000)
 
 ######################################################################
 #
