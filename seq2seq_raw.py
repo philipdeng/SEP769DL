@@ -2,6 +2,11 @@
 
 # Requirements
 from __future__ import unicode_literals, print_function, division
+import numpy as np
+import matplotlib.ticker as ticker
+import matplotlib.pyplot as plt
+import math
+import time
 from cgi import test
 from io import open
 import unicodedata
@@ -13,6 +18,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
+from torchtext.data.metrics import bleu_score
 
 from tqdm import tqdm
 
@@ -83,6 +89,7 @@ def unicodeToAscii(s):
 
 # Lowercase, trim, and remove non-letter characters
 
+
 def normalizeString(s):
     s = unicodeToAscii(s.lower().strip())
     s = re.sub(r"([.!?])", r" \1", s)           # Split .!? with words
@@ -93,7 +100,7 @@ def normalizeString(s):
 ######################################################################
 # To read the data file we will split the file into lines, and then split
 # lines into pairs. The files are all English → Other Language, so if we
-# want to translate from Other Language → English 
+# want to translate from Other Language → English
 
 def readLangs(lang1, lang2):
     print("Reading lines...")
@@ -121,16 +128,15 @@ def readLangs(lang1, lang2):
 # earlier).
 #
 
-MAX_LENGTH = 15
-MIN_LENGTH = 5
-
+MAX_LENGTH = 20
+MIN_LENGTH = 8
 
 
 def filterPair(p):
     return len(p[0].split(' ')) < MAX_LENGTH and \
         len(p[1].split(' ')) < MAX_LENGTH \
-            and len(p[0].split(' ')) > MIN_LENGTH \
-                and len(p[1].split(' ')) > MIN_LENGTH 
+        and len(p[0].split(' ')) > MIN_LENGTH \
+        and len(p[1].split(' ')) > MIN_LENGTH
 
 
 def filterPairs(pairs):
@@ -170,73 +176,33 @@ print(random.choice(pairs))
 def splitData(pairs):
     train_set_size = int(len(pairs) * 0.7)
     split_set_size = len(pairs) - train_set_size
-    train_set, split_set = torch.utils.data.random_split(pairs, [train_set_size, split_set_size])
+    train_set, split_set = torch.utils.data.random_split(
+        pairs, [train_set_size, split_set_size])
     test_set_size = int(len(split_set) * 0.5)
     val_set_size = len(split_set) - test_set_size
-    val_set, test_set = torch.utils.data.random_split(split_set, [val_set_size, test_set_size])
+    val_set, test_set = torch.utils.data.random_split(
+        split_set, [val_set_size, test_set_size])
     return train_set, val_set, test_set
 
 
 train_set, val_set, test_set = splitData(pairs)
 
 
-######################################################################
-# The Seq2Seq Model
-# =================
-#
-# A Recurrent Neural Network, or RNN, is a network that operates on a
-# sequence and uses its own output as input for subsequent steps.
-#
-# A `Sequence to Sequence network <https://arxiv.org/abs/1409.3215>`__, or
-# seq2seq network, or `Encoder Decoder
-# network <https://arxiv.org/pdf/1406.1078v3.pdf>`__, is a model
-# consisting of two RNNs called the encoder and decoder. The encoder reads
-# an input sequence and outputs a single vector, and the decoder reads
-# that vector to produce an output sequence.
-#
-# .. figure:: /_static/img/seq-seq-images/seq2seq.png
-#    :alt:
-#
-# Unlike sequence prediction with a single RNN, where every input
-# corresponds to an output, the seq2seq model frees us from sequence
-# length and order, which makes it ideal for translation between two
-# languages.
-#
-# Consider the sentence "Je ne suis pas le chat noir" → "I am not the
-# black cat". Most of the words in the input sentence have a direct
-# translation in the output sentence, but are in slightly different
-# orders, e.g. "chat noir" and "black cat". Because of the "ne/pas"
-# construction there is also one more word in the input sentence. It would
-# be difficult to produce a correct translation directly from the sequence
-# of input words.
-#
-# With a seq2seq model the encoder creates a single vector which, in the
-# ideal case, encodes the "meaning" of the input sequence into a single
-# vector — a single point in some N dimensional space of sentences.
-#
-
 
 ######################################################################
 # The Encoder
-# -----------
-#
-# The encoder of a seq2seq network is a RNN that outputs some value for
-# every word from the input sentence. For every input word the encoder
-# outputs a vector and a hidden state, and uses the hidden state for the
-# next input word.
-#
-# .. figure:: /_static/img/seq-seq-images/encoder-network.png
-#    :alt:
-#
-#
+
 
 class EncoderRNN(nn.Module):
+
+    GRU_layern = 1
+
     def __init__(self, input_size, hidden_size):
         super(EncoderRNN, self).__init__()
         self.hidden_size = hidden_size
-
+        self.GRU_layern = 1
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size,2)
+        self.gru = nn.GRU(hidden_size, hidden_size, self.GRU_layern)
 
     def forward(self, input, hidden):
         embedded = self.embedding(input).view(1, 1, -1)
@@ -245,43 +211,19 @@ class EncoderRNN(nn.Module):
         return output, hidden
 
     def initHidden(self):
-        return torch.zeros(2, 1, self.hidden_size, device=device)
+        return torch.zeros(self.GRU_layern, 1, self.hidden_size, device=device)
 
 ######################################################################
 # The Decoder
-# -----------
-#
-# The decoder is another RNN that takes the encoder output vector(s) and
-# outputs a sequence of words to create the translation.
-#
 
-
-######################################################################
-# Simple Decoder
-# ^^^^^^^^^^^^^^
-#
-# In the simplest seq2seq decoder we use only last output of the encoder.
-# This last output is sometimes called the *context vector* as it encodes
-# context from the entire sequence. This context vector is used as the
-# initial hidden state of the decoder.
-#
-# At every step of decoding, the decoder is given an input token and
-# hidden state. The initial input token is the start-of-string ``<SOS>``
-# token, and the first hidden state is the context vector (the encoder's
-# last hidden state).
-#
-# .. figure:: /_static/img/seq-seq-images/decoder-network.png
-#    :alt:
-#
-#
 
 class DecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size):
         super(DecoderRNN, self).__init__()
         self.hidden_size = hidden_size
-
+        self.GRU_layern = 1
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, 2)
+        self.gru = nn.GRU(hidden_size, hidden_size, self.GRU_layern)
         self.out = nn.Linear(hidden_size, output_size)
         self.softmax = nn.LogSoftmax(dim=1)
 
@@ -293,26 +235,12 @@ class DecoderRNN(nn.Module):
         return output, hidden
 
     def initHidden(self):
-        return torch.zeros(2, 1, self.hidden_size, device=device)
+        return torch.zeros(self.GRU_layern, 1, self.hidden_size, device=device)
 
 
 ######################################################################
-# .. note:: There are other forms of attention that work around the length
-#   limitation by using a relative position approach. Read about "local
-#   attention" in `Effective Approaches to Attention-based Neural Machine
-#   Translation <https://arxiv.org/abs/1508.04025>`__.
-#
-# Training
-# ========
-#
 # Preparing Training Data
-# -----------------------
-#
-# To train, for each pair we will need an input tensor (indexes of the
-# words in the input sentence) and target tensor (indexes of the words in
-# the target sentence). While creating these vectors we will append the
-# EOS token to both sequences.
-#
+
 
 def indexesFromSentence(lang, sentence):
     return [lang.word2index[word] for word in sentence.split(' ')]
@@ -332,30 +260,6 @@ def tensorsFromPair(pair):
 
 ######################################################################
 # Training the Model
-# ------------------
-#
-# To train we run the input sentence through the encoder, and keep track
-# of every output and the latest hidden state. Then the decoder is given
-# the ``<SOS>`` token as its first input, and the last hidden state of the
-# encoder as its first hidden state.
-#
-# "Teacher forcing" is the concept of using the real target outputs as
-# each next input, instead of using the decoder's guess as the next input.
-# Using teacher forcing causes it to converge faster but `when the trained
-# network is exploited, it may exhibit
-# instability <http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.378.4095&rep=rep1&type=pdf>`__.
-#
-# You can observe outputs of teacher-forced networks that read with
-# coherent grammar but wander far from the correct translation -
-# intuitively it has learned to represent the output grammar and can "pick
-# up" the meaning once the teacher tells it the first few words, but it
-# has not properly learned how to create the sentence from the translation
-# in the first place.
-#
-# Because of the freedom PyTorch's autograd gives us, we can randomly
-# choose to use teacher forcing or not with a simple if statement. Turn
-# ``teacher_forcing_ratio`` up to use more of it.
-#
 
 
 def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, max_length=MAX_LENGTH):
@@ -367,7 +271,8 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
     input_length = input_tensor.size(0)
     target_length = target_tensor.size(0)
 
-    encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+    encoder_outputs = torch.zeros(
+        max_length, encoder.hidden_size, device=device)
 
     loss = 0
 
@@ -403,9 +308,6 @@ def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer, deco
 # remaining given the current time and progress %.
 #
 
-import time
-import math
-
 
 def asMinutes(s):
     m = math.floor(s / 60)
@@ -433,22 +335,25 @@ def timeSince(since, percent):
 # of examples, time so far, estimated time) and average loss.
 #
 
-def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.0001):
+def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.002):
     print("Max iterations: ", max_n_iters)
 
     start = time.time()
     plot_losses = []
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0  # Reset every plot_every
+    eval_loss_total = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
     training_pairs = [tensorsFromPair(random.choice(train_set))
                       for i in range(max_n_iters)]
+    eval_pairs = [tensorsFromPair(x) for x in val_set]
     criterion = nn.NLLLoss()
 
     last_loss = 10
     countdown = 3
+    eval_every = print_every
 
     for iter in range(1, max_n_iters + 1):
         training_pair = training_pairs[iter - 1]
@@ -460,25 +365,29 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
         print_loss_total += loss
         plot_loss_total += loss
 
+        if iter % eval_every == 0:
+            for pair in eval_pairs:
+                input_eval_tensor = pair[0]
+                target_eval_tensor = pair[1]
+                eval_loss = evaluate_loss(
+                    encoder, decoder, input_eval_tensor, target_eval_tensor, criterion)
+                eval_loss_total += eval_loss
+
+            eval_loss_avg = eval_loss_total / len(eval_pairs)
+            eval_loss_total = 0
+            print("eval loss: ", eval_loss_avg)
+
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
-            print('%s (%d %d%%) %.4f' % (timeSince(start, iter / max_n_iters),
-                                         iter, iter / max_n_iters * 100, print_loss_avg))
-            # if last_loss - print_loss_avg < 0.01:
-            #     if countdown == 0:
-            #         break
-            #     else:
-            #         countdown -= 1
-            # else:
-            #     countdown = 5
-            # last_loss = print_loss_avg
+            print("train loss: ", print_loss_avg)
+            print('%s (%d %d%%)' % (timeSince(start, iter / max_n_iters),
+                                         iter, iter / max_n_iters * 100))
 
         if iter % plot_every == 0:
             plot_loss_avg = plot_loss_total / plot_every
             plot_losses.append(plot_loss_avg)
             plot_loss_total = 0
-        
 
     showPlot(plot_losses)
 
@@ -491,10 +400,7 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
 # ``plot_losses`` saved while training.
 #
 
-import matplotlib.pyplot as plt
 plt.switch_backend('agg')
-import matplotlib.ticker as ticker
-import numpy as np
 
 
 def showPlot(points):
@@ -523,7 +429,8 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
         input_length = input_tensor.size()[0]
         encoder_hidden = encoder.initHidden()
 
-        encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+        encoder_outputs = torch.zeros(
+            max_length, encoder.hidden_size, device=device)
 
         for ei in range(input_length):
             encoder_output, encoder_hidden = encoder(input_tensor[ei],
@@ -551,13 +458,14 @@ def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
         return decoded_words
 
 
-def evaluate_loss(encoder, decoder, input_tensor, target_tensor, max_length=MAX_LENGTH):
+def evaluate_loss(encoder, decoder, input_tensor, target_tensor,criterion , max_length=MAX_LENGTH):
     with torch.no_grad():
         input_length = input_tensor.size(0)
         target_length = target_tensor.size(0)
         encoder_hidden = encoder.initHidden()
 
-        encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+        encoder_outputs = torch.zeros(
+            max_length, encoder.hidden_size, device=device)
 
         loss = 0
 
@@ -570,19 +478,38 @@ def evaluate_loss(encoder, decoder, input_tensor, target_tensor, max_length=MAX_
 
         decoder_hidden = encoder_hidden
 
-        for di in range(max_length):
+        for di in range(target_length):
             decoder_output, decoder_hidden,  = decoder(
                 decoder_input, decoder_hidden)
             topv, topi = decoder_output.data.topk(1)
             decoder_input = topi.squeeze().detach()
-            
+
             loss += criterion(decoder_output, target_tensor[di])
             if decoder_input.item() == EOS_token:
                 break
 
-        loss.backward()
-
         return loss.item() / target_length
+
+
+def calculate_bleu(encoder, decoder):
+    
+    test_trgs = []
+    pred_trgs = []
+    
+    for pair in test_set:
+        
+        src = pair[0]
+        trg = pair[1]
+        
+        pred_trg = evaluate(encoder, decoder, src)
+        
+        #cut off <eos> token
+        pred_trg = pred_trg[:-1]
+        
+        pred_trgs.append(pred_trg)
+        test_trgs.append(trg.split())
+        
+    return bleu_score(pred_trgs, test_trgs)
 
 
 ######################################################################
@@ -603,33 +530,19 @@ def evaluateRandomly(encoder, decoder, n=10):
 
 ######################################################################
 # Training and Evaluating
-# =======================
-#
-# With all these helper functions in place (it looks like extra work, but
-# it makes it easier to run multiple experiments) we can actually
-# initialize a network and start training.
-#
-# Remember that the input sentences were heavily filtered. For this small
-# dataset we can use relatively small networks of 256 hidden nodes and a
-# single GRU layer. After about 40 minutes on a MacBook CPU we'll get some
-# reasonable results.
-#
-# .. Note::
-#    If you run this notebook you can train, interrupt the kernel,
-#    evaluate, and continue training later. Comment out the lines where the
-#    encoder and decoder are initialized and run ``trainIters`` again.
-#
 
-hidden_size = 512
+
+hidden_size = 256
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, decoder1, 10000000, print_every=5000)
+trainIters(encoder1, decoder1, 50000, print_every=5000)
 
 ######################################################################
 #
 
 evaluateRandomly(encoder1, decoder1)
 
+bleu_score = calculate_bleu(encoder1, decoder1)
 
-
+print(f'BLEU score = {bleu_score}')

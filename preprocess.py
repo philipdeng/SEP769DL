@@ -2,6 +2,7 @@
 
 import pandas as pd
 from tqdm import tqdm
+import random
 
 # Load file
 f = open('en-fr.csv', 'rb')
@@ -11,7 +12,9 @@ new_f = open('eng-fra.csv', 'wb')
 
 # Select
 i = 0
-while i < 1000000:
+while i < 10000:
+    if random.randint(1,10) <5:
+        continue
     line = f.readline()
     if line.decode("utf-8").count(",") == 1:
         new_f.write(line)
@@ -19,6 +22,8 @@ while i < 1000000:
 
 new_f.close()
 f.close()
+
+print("extracted")
 
 # df = pd.read_csv('en-fr.csv',nrows=2000, encoding='utf-8')
 # print(df.head(10))
