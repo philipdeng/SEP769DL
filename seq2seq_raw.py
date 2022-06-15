@@ -25,20 +25,6 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-######################################################################
-# Similar to the character encoding used in the character-level RNN
-# tutorials, we will be representing each word in a language as a one-hot
-# vector, or giant vector of zeros except for a single one (at the index
-# of the word). Compared to the dozens of characters that might exist in a
-# language, there are many many more words, so the encoding vector is much
-# larger. We will however cheat a bit and trim the data to only use a few
-# thousand words per language.
-#
-# .. figure:: /_static/img/seq-seq-images/word-encoding.png
-#    :alt:
-#
-#
-
 
 ######################################################################
 # We'll need a unique index per word to use as the inputs and targets of
@@ -395,11 +381,7 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
 
 ######################################################################
 # Plotting results
-# ----------------
-#
-# Plotting is done with matplotlib, using the array of loss values
-# ``plot_losses`` saved while training.
-#
+
 
 plt.switch_backend('agg')
 
@@ -415,14 +397,7 @@ def showPlot(points):
 
 ######################################################################
 # Evaluation
-# ==========
-#
-# Evaluation is mostly the same as training, but there are no targets so
-# we simply feed the decoder's predictions back to itself for each step.
-# Every time it predicts a word we add it to the output string, and if it
-# predicts the EOS token we stop there. We also store the decoder's
-# attention outputs for display later.
-#
+
 
 def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
     with torch.no_grad():
@@ -545,7 +520,7 @@ decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 trainIters(encoder1, decoder1, 50000, print_every=5000)
 
 ######################################################################
-#
+# Evaluation Result
 
 evaluateRandomly(encoder1, decoder1)
 
