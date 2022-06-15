@@ -2,6 +2,7 @@
 
 # Requirements
 from __future__ import unicode_literals, print_function, division
+from audioop import avg
 import numpy as np
 import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
@@ -495,6 +496,7 @@ def calculate_bleu(encoder, decoder):
     
     test_trgs = []
     pred_trgs = []
+    scores = []
     
     for pair in test_set:
         
@@ -508,8 +510,12 @@ def calculate_bleu(encoder, decoder):
         
         pred_trgs.append(pred_trg)
         test_trgs.append(trg.split())
+
+    for i, j in pred_trgs, test_trgs:
+        score = bleu_score(i, j)
+        scores.append(score)
         
-    return bleu_score(pred_trgs, test_trgs)
+    return sum(scores)/len(scores)
 
 
 ######################################################################
