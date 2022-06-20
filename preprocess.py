@@ -12,7 +12,7 @@ new_f = open('eng-fra.csv', 'wb')
 
 # Select
 i = 0
-while i < 10000:
+while i < 2000000:
     if random.randint(1,10) <5:
         continue
     line = f.readline()

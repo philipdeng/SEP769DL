@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
+# Fei Deng
 
 # Requirements
 from __future__ import unicode_literals, print_function, division
 import numpy as np
-import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import math
 import time
-from cgi import test
 from io import open
 import unicodedata
-import string
 import re
 import random
 
@@ -24,28 +22,6 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-######################################################################
-# Similar to the character encoding used in the character-level RNN
-# tutorials, we will be representing each word in a language as a one-hot
-# vector, or giant vector of zeros except for a single one (at the index
-# of the word). Compared to the dozens of characters that might exist in a
-# language, there are many many more words, so the encoding vector is much
-# larger. We will however cheat a bit and trim the data to only use a few
-# thousand words per language.
-#
-# .. figure:: /_static/img/seq-seq-images/word-encoding.png
-#    :alt:
-#
-#
-
-
-######################################################################
-# We'll need a unique index per word to use as the inputs and targets of
-# the networks later. To keep track of all this we will use a helper class
-# called ``Lang`` which has word → index (``word2index``) and index → word
-# (``index2word``) dictionaries, as well as a count of each word
-# ``word2count`` which will be used to replace rare words later.
-#
 
 SOS_token = 0
 EOS_token = 1
@@ -79,7 +55,7 @@ class Lang:
 # punctuation.
 #
 
-# Turn a Unicode string to plain ASCII, thanks to
+# Turn a Unicode string to plain ASCII
 # https://stackoverflow.com/a/518232/2809427
 def unicodeToAscii(s):
     return ''.join(
@@ -128,8 +104,8 @@ def readLangs(lang1, lang2):
 # earlier).
 #
 
-MAX_LENGTH = 20
-MIN_LENGTH = 8
+MAX_LENGTH = 15
+MIN_LENGTH = 10
 
 
 def filterPair(p):
@@ -324,22 +300,14 @@ def timeSince(since, percent):
 
 
 ######################################################################
-# The whole training process looks like this:
-#
-# -  Start a timer
-# -  Initialize optimizers and criterion
-# -  Create set of training pairs
-# -  Start empty losses array for plotting
-#
-# Then we call ``train`` many times and occasionally print the progress (%
-# of examples, time so far, estimated time) and average loss.
-#
+# Training process 
 
-def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.002):
+def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, learning_rate=0.0001):
     print("Max iterations: ", max_n_iters)
 
     start = time.time()
     plot_losses = []
+    plot_eval = []
     print_loss_total = 0  # Reset every print_every
     plot_loss_total = 0  # Reset every plot_every
     eval_loss_total = 0
@@ -351,8 +319,6 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
     eval_pairs = [tensorsFromPair(x) for x in val_set]
     criterion = nn.NLLLoss()
 
-    last_loss = 10
-    countdown = 3
     eval_every = print_every
 
     for iter in range(1, max_n_iters + 1):
@@ -375,53 +341,43 @@ def trainIters(encoder, decoder, max_n_iters, print_every=1000, plot_every=100, 
 
             eval_loss_avg = eval_loss_total / len(eval_pairs)
             eval_loss_total = 0
+            plot_eval.append(eval_loss_avg)
             print("eval loss: ", eval_loss_avg)
 
         if iter % print_every == 0:
             print_loss_avg = print_loss_total / print_every
             print_loss_total = 0
+            plot_losses.append(print_loss_avg)
             print("train loss: ", print_loss_avg)
             print('%s (%d %d%%)' % (timeSince(start, iter / max_n_iters),
                                          iter, iter / max_n_iters * 100))
 
-        if iter % plot_every == 0:
-            plot_loss_avg = plot_loss_total / plot_every
-            plot_losses.append(plot_loss_avg)
-            plot_loss_total = 0
+        # if iter % plot_every == 0:
+        #     plot_loss_avg = plot_loss_total / plot_every
+        #     plot_losses.append(plot_loss_avg)
+        #     plot_loss_total = 0
 
-    showPlot(plot_losses)
+    showPlot(plot_losses, plot_eval, max_n_iters, print_every)
 
 
 ######################################################################
-# Plotting results
-# ----------------
-#
-# Plotting is done with matplotlib, using the array of loss values
-# ``plot_losses`` saved while training.
-#
-
-plt.switch_backend('agg')
+# Plotting loss
 
 
-def showPlot(points):
-    plt.figure()
-    fig, ax = plt.subplots()
-    # this locator puts ticks at regular intervals
-    loc = ticker.MultipleLocator(base=0.2)
-    ax.yaxis.set_major_locator(loc)
-    plt.plot(points)
-
+def showPlot(train,val, max_n_iters, print_every):
+    x1 = [x * print_every for x in range(1,max_n_iters//print_every + 1)]
+    print(x1)
+    train_loss = plt.plot(x1, train, label="train loss")
+    val_loss = plt.plot(x1, val, label="validation loss")
+    plt.title("Train loss VS. Val loss")
+    plt.xlabel("iter")
+    plt.ylabel("loss")
+    plt.legend()
+    plt.show()
 
 ######################################################################
 # Evaluation
-# ==========
-#
-# Evaluation is mostly the same as training, but there are no targets so
-# we simply feed the decoder's predictions back to itself for each step.
-# Every time it predicts a word we add it to the output string, and if it
-# predicts the EOS token we stop there. We also store the decoder's
-# attention outputs for display later.
-#
+
 
 def evaluate(encoder, decoder, sentence, max_length=MAX_LENGTH):
     with torch.no_grad():
@@ -514,8 +470,6 @@ def calculate_bleu(encoder, decoder):
 
 ######################################################################
 # We can evaluate random sentences from the training set and print out the
-# input, target, and output to make some subjective quality judgements:
-#
 
 def evaluateRandomly(encoder, decoder, n=10):
     for i in range(n):
@@ -536,7 +490,7 @@ hidden_size = 256
 encoder1 = EncoderRNN(input_lang.n_words, hidden_size).to(device)
 decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 
-trainIters(encoder1, decoder1, 50000, print_every=5000)
+trainIters(encoder1, decoder1, 500000, print_every=5000)
 
 ######################################################################
 #
