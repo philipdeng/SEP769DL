@@ -3,6 +3,7 @@
 
 # Requirements
 from __future__ import unicode_literals, print_function, division
+from audioop import avg
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -22,6 +23,14 @@ from tqdm import tqdm
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+######################################################################
+# We'll need a unique index per word to use as the inputs and targets of
+# the networks later. To keep track of all this we will use a helper class
+# called ``Lang`` which has word → index (``word2index``) and index → word
+# (``index2word``) dictionaries, as well as a count of each word
+# ``word2count`` which will be used to replace rare words later.
+#
 
 SOS_token = 0
 EOS_token = 1
@@ -451,6 +460,7 @@ def calculate_bleu(encoder, decoder):
     
     test_trgs = []
     pred_trgs = []
+    scores = []
     
     for pair in test_set:
         
@@ -464,8 +474,12 @@ def calculate_bleu(encoder, decoder):
         
         pred_trgs.append(pred_trg)
         test_trgs.append(trg.split())
+
+    for i, j in pred_trgs, test_trgs:
+        score = bleu_score(i, j)
+        scores.append(score)
         
-    return bleu_score(pred_trgs, test_trgs)
+    return sum(scores)/len(scores)
 
 
 ######################################################################
@@ -493,7 +507,7 @@ decoder1 = DecoderRNN(hidden_size, output_lang.n_words).to(device)
 trainIters(encoder1, decoder1, 500000, print_every=5000)
 
 ######################################################################
-#
+# Evaluation Result
 
 evaluateRandomly(encoder1, decoder1)
 
